@@ -28,7 +28,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["DJI_API_KEY"] =
-            localProperties.getProperty("dji.api.key", "")
+            providers.environmentVariable("DJI_API_KEY").orNull
+                ?: localProperties.getProperty("dji.api.key", "")
     }
 
     buildTypes {
