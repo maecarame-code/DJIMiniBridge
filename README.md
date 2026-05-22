@@ -27,6 +27,7 @@ Python en PC
 - `docs/RESUMEN_ESTABLE.md`: resumen de la base estable confirmada.
 - `docs/USO_DJI_SDK.md`: reglas y flujo estable del SDK DJI.
 - `docs/PYTHON_BRIDGE.md`: comunicacion PC Python -> telefono Android.
+- `docs/V2_PLAN.md`: plan V2 para control seguro desde Python.
 
 ## Configuracion local
 
