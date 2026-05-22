@@ -22,6 +22,12 @@ Python en PC
 - Expone telemetria y comandos simples por WebSocket en el puerto `8766`.
 - Incluye clientes Python en `python_bridge/`.
 
+## Documentacion
+
+- `docs/RESUMEN_ESTABLE.md`: resumen de la base estable confirmada.
+- `docs/USO_DJI_SDK.md`: reglas y flujo estable del SDK DJI.
+- `docs/PYTHON_BRIDGE.md`: comunicacion PC Python -> telefono Android.
+
 ## Configuracion local
 
 Este proyecto necesita una API key de DJI. No debe subirse al repositorio.
@@ -88,6 +94,12 @@ python python_bridge\dji_console.py 192.168.100.24
 ```
 
 Usa la IP que muestra la app al tocar `Iniciar puente PC`.
+
+Guia completa:
+
+```text
+docs/PYTHON_BRIDGE.md
+```
 
 ## Reglas importantes
 
