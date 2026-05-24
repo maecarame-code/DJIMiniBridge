@@ -95,6 +95,13 @@ def print_message(message: str) -> None:
             f"D={status.get('distanceM')}m "
             f"video={status.get('videoActive')}"
         )
+    elif data.get("type") == "ack":
+        result = "OK" if data.get("ok") else "ERROR"
+        print(
+            f"{result} "
+            f"comando={data.get('command')} "
+            f"mensaje={data.get('message')}"
+        )
     else:
         print(json.dumps(data, indent=2, ensure_ascii=False))
 
