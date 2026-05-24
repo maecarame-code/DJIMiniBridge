@@ -1,8 +1,6 @@
 # Python Bridge
 
-Este documento describe la comunicacion entre la PC con Python y la app Android DJIMiniBridge.
-
-## Arquitectura
+Comunicacion entre la PC con Python y la app Android DJIMiniBridge.
 
 ```text
 Python en PC
@@ -13,27 +11,9 @@ Python en PC
           -> Dron
 ```
 
-El telefono debe estar conectado al control DJI por USB durante pruebas reales. Por eso, la PC no debe depender del USB para comunicarse con el telefono; la comunicacion estable es por WiFi usando la IP que muestra la app.
-
-## Requisito antes de usar Python
-
-En la app Android debe estar activo:
-
-```text
-Iniciar puente PC
-```
-
-La app mostrara la IP del telefono. Esa IP se usa desde Python.
-
-Ejemplo:
-
-```text
-192.168.100.24
-```
+El telefono debe estar conectado al control DJI por USB. La PC se comunica con el telefono por WiFi usando la IP que muestra la app al tocar `Iniciar puente PC`.
 
 ## HTTP
-
-HTTP se usa para pedir estado cuando la PC lo necesite.
 
 Puerto:
 
@@ -41,43 +21,45 @@ Puerto:
 8765
 ```
 
-Endpoint estable:
+Endpoint:
 
 ```text
 GET /status
 ```
 
-Ejemplo en PowerShell:
+Ejemplo:
 
 ```powershell
-Invoke-RestMethod http://192.168.100.24:8765/status
+Invoke-RestMethod http://IP_DEL_TELEFONO:8765/status
 ```
 
-Respuesta esperada:
+Campos principales:
 
 ```json
 {
   "connection": "conectado",
-  "model": "DJI ...",
+  "model": "--",
   "batteryPercent": 68,
   "batteryVoltageMv": 3780,
   "altitudeM": 0.0,
   "distanceM": 0.0,
   "verticalSpeed": 0.0,
   "horizontalSpeed": 0.0,
-  "videoActive": true
+  "videoActive": true,
+  "virtualStickAvailable": true,
+  "virtualStickEnabled": false,
+  "flightControllerReady": true,
+  "lastCommandAudit": "respuesta hora=... comando=... decision=..."
 }
 ```
 
 Script:
 
 ```powershell
-python python_bridge\bridge_client.py 192.168.100.24
+python python_bridge\bridge_client.py IP_DEL_TELEFONO
 ```
 
 ## WebSocket
-
-WebSocket se usa para telemetria en vivo y comandos simples.
 
 Puerto:
 
@@ -85,90 +67,125 @@ Puerto:
 8766
 ```
 
-Script para escuchar telemetria:
+Escuchar telemetria:
 
 ```powershell
-python python_bridge\bridge_ws_client.py 192.168.100.24 --seconds 20
+python python_bridge\bridge_ws_client.py IP_DEL_TELEFONO --seconds 20
 ```
 
-Comandos simples actuales:
+Enviar un comando:
+
+```powershell
+python python_bridge\bridge_ws_client.py IP_DEL_TELEFONO --command get_status
+```
+
+Respuesta `ack`:
+
+```json
+{
+  "type": "ack",
+  "ok": true,
+  "command": "start_video",
+  "message": "video iniciado"
+}
+```
+
+Respuesta `status`:
+
+```json
+{
+  "type": "status",
+  "data": {
+    "connection": "conectado",
+    "videoActive": true,
+    "virtualStickAvailable": true,
+    "virtualStickEnabled": false,
+    "flightControllerReady": true
+  }
+}
+```
+
+## Comandos
+
+Operativos:
 
 ```text
 get_status
 start_video
 stop_video
+stop_test
+disconnect_drone
 ```
 
-Estos comandos son intencionalmente limitados. Todavia no deben existir comandos de movimiento del dron sin una capa de seguridad especifica.
-
-## Consola Python
-
-Se creo una consola para no tener que ejecutar comandos largos todo el tiempo.
-
-Archivo:
+Virtual Stick:
 
 ```text
-python_bridge/dji_console.py
+check_virtual_stick
+enable_virtual_stick
+disable_virtual_stick
 ```
+
+Seguridad y prueba sin movimiento:
+
+```text
+can_accept_flight_command
+send_zero_stick
+emergency_stop
+```
+
+`send_zero_stick` envia pitch, roll, yaw y vertical en `0` durante 3 segundos. No es movimiento real.
+
+`emergency_stop` intenta enviar cero, desactivar Virtual Stick y detener la prueba activa.
+
+## Consola Python
 
 Uso:
 
 ```powershell
-python python_bridge\dji_console.py 192.168.100.24
+python python_bridge\dji_console.py IP_DEL_TELEFONO
 ```
 
-Tambien se puede ejecutar con el Python incluido en Codex:
+Con el Python incluido en Codex:
 
 ```powershell
-C:\Users\maeca\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge\python_bridge\dji_console.py 192.168.100.24
+C:\Users\maeca\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge-DJI7\python_bridge\dji_console.py IP_DEL_TELEFONO
 ```
 
 Menu actual:
 
 ```text
-DJIMiniBridge Python Console
 1. Ver estado
 2. Escuchar telemetria
 3. Iniciar video
-4. Detener prueba
-5. Salir
+4. Detener video
+5. Detener prueba
+6. Desconectar dron
+7. Revisar Virtual Stick
+8. Activar Virtual Stick
+9. Desactivar Virtual Stick
+10. Revisar seguridad vuelo
+11. Enviar cero Virtual Stick
+12. Parada emergencia
+13. Salir
 ```
 
-Acciones:
+## Orden de prueba recomendado
 
-- `Ver estado`: consulta HTTP `GET /status`.
-- `Escuchar telemetria`: abre WebSocket y escucha mensajes durante 20 segundos.
-- `Iniciar video`: envia comando WebSocket `start_video`.
-- `Detener prueba`: envia comando WebSocket `stop_video`.
-- `Salir`: cierra la consola.
+1. Android: `Preparar DJI`.
+2. Android: `Conectar dron`.
+3. Android: `Iniciar video`.
+4. Android: `Iniciar puente PC`.
+5. Python: `7 Revisar Virtual Stick`.
+6. Python: `8 Activar Virtual Stick`.
+7. Python: `10 Revisar seguridad vuelo`.
+8. Python: `11 Enviar cero Virtual Stick`.
+9. Python: `12 Parada emergencia`.
 
-## Estado estable confirmado
+Si algo falla, usar `12 Parada emergencia`, detener puente PC si hace falta y revisar `lastCommandAudit`.
 
-Ya se confirmo:
+## Reglas
 
-- HTTP funciona para pedir estado.
-- WebSocket funciona para telemetria en vivo.
-- WebSocket acepta comandos simples.
-- `dji_console.py` existe y compila sin errores de sintaxis.
-- La comunicacion PC -> telefono funciona por WiFi.
-- El USB queda libre para telefono -> control DJI durante prueba real.
-
-## Limites actuales
-
-La capa Python todavia no debe enviar instrucciones reales de movimiento al dron.
-
-Antes de agregar comandos como despegar, aterrizar, avanzar, girar o moverse, se necesita definir una capa de seguridad con reglas claras:
-
-- confirmacion explicita antes de comandos peligrosos
-- validacion de conexion
-- validacion de bateria
-- validacion de modo de vuelo
-- limites de altura y distancia
-- boton o comando de parada
-- registro de comandos enviados
-
-## Regla principal
-
-Python puede consultar y enviar comandos simples al telefono. El telefono es quien habla con DJI SDK. La PC no habla directamente con el dron.
-
-Esta separacion debe mantenerse para que la arquitectura siga siendo estable.
+- Python no habla directamente con el dron.
+- Android valida antes de ejecutar.
+- No enviar movimiento real desde Python sin una fase nueva.
+- Si falta bateria, telemetria, Virtual Stick o FlightController, Android debe rechazar el comando y explicar la razon.

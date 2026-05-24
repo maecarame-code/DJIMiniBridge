@@ -2,8 +2,6 @@
 
 Puente experimental entre una PC con Python, un telefono Android, DJI Mobile SDK v4 y un dron DJI.
 
-Arquitectura objetivo:
-
 ```text
 Python en PC
   -> WiFi HTTP/WebSocket
@@ -13,21 +11,29 @@ Python en PC
           -> dron
 ```
 
+Regla principal: Python pide, Android valida y Android decide. La PC no habla directamente con el dron.
+
 ## Estado actual
 
-- Android conecta con DJI SDK de forma manual y por etapas.
-- Lee modelo, bateria y telemetria.
-- Muestra video estable usando `TextureView`, `VideoFeeder` y `DJICodecManager`.
-- Expone estado a la PC por HTTP en el puerto `8765`.
-- Expone telemetria y comandos simples por WebSocket en el puerto `8766`.
-- Incluye clientes Python en `python_bridge/`.
+- Android prepara DJI manualmente con `Preparar DJI`.
+- Conecta/desconecta dron desde un boton con estado.
+- Muestra video estable con `TextureView`, `VideoFeeder` y `DJICodecManager`.
+- Expone estado por HTTP en `8765`.
+- Expone telemetria y comandos por WebSocket en `8766`.
+- Soporta Virtual Stick seguro:
+  - revisar disponibilidad
+  - activar/desactivar manualmente
+  - validar seguridad antes de comandos de vuelo
+  - enviar `send_zero_stick` por 3 segundos sin movimiento real
+  - ejecutar `emergency_stop`
+- Registra auditoria simple por comando en Android y expone `lastCommandAudit`.
 
 ## Documentacion
 
-- `docs/RESUMEN_ESTABLE.md`: resumen de la base estable confirmada.
-- `docs/USO_DJI_SDK.md`: reglas y flujo estable del SDK DJI.
+- `docs/RESUMEN_ESTABLE.md`: estado estable confirmado.
+- `docs/USO_DJI_SDK.md`: reglas y uso del SDK DJI.
 - `docs/PYTHON_BRIDGE.md`: comunicacion PC Python -> telefono Android.
-- `docs/V2_PLAN.md`: plan V2 para control seguro desde Python.
+- `docs/V2_PLAN.md`: plan V2.
 
 ## Configuracion local
 
@@ -58,54 +64,68 @@ APK debug:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Instalar en Android
+Instalar en el telefono:
 
 ```powershell
-& "C:\Users\maeca\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r "C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge\app\build\outputs\apk\debug\app-debug.apk"
+& "C:\Users\maeca\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r "C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge-DJI7\app\build\outputs\apk\debug\app-debug.apk"
 ```
 
 ## Flujo Android
 
-1. `Cargar DJI`
-2. `Registrar DJI`
-3. `Conectar dron`
-4. `Iniciar video`
-5. `Iniciar puente PC`
+1. `Preparar DJI`
+2. `Conectar dron`
+3. `Iniciar video`
+4. `Iniciar puente PC`
 
-Para prueba real, el telefono se conecta al control DJI por USB y la PC se conecta al telefono por WiFi.
+Para pruebas reales, el telefono se conecta al control DJI por USB y la PC se conecta al telefono por WiFi.
 
 ## Python
 
-Estado por HTTP:
-
-```powershell
-python python_bridge\bridge_client.py 192.168.100.24
-```
-
-Telemetria WebSocket:
-
-```powershell
-python python_bridge\bridge_ws_client.py 192.168.100.24 --seconds 20
-```
-
-Consola:
-
-```powershell
-python python_bridge\dji_console.py 192.168.100.24
-```
-
 Usa la IP que muestra la app al tocar `Iniciar puente PC`.
 
-Guia completa:
+```powershell
+python python_bridge\bridge_client.py IP_DEL_TELEFONO
+python python_bridge\bridge_ws_client.py IP_DEL_TELEFONO --seconds 20
+python python_bridge\dji_console.py IP_DEL_TELEFONO
+```
+
+Con el Python incluido en Codex:
+
+```powershell
+C:\Users\maeca\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge-DJI7\python_bridge\dji_console.py IP_DEL_TELEFONO
+```
+
+## Comandos WebSocket
+
+Operativos:
 
 ```text
-docs/PYTHON_BRIDGE.md
+get_status
+start_video
+stop_video
+stop_test
+disconnect_drone
 ```
+
+Virtual Stick y seguridad:
+
+```text
+check_virtual_stick
+enable_virtual_stick
+disable_virtual_stick
+can_accept_flight_command
+send_zero_stick
+emergency_stop
+```
+
+`send_zero_stick` no mueve el dron: envia pitch, roll, yaw y vertical en cero durante 3 segundos.
 
 ## Reglas importantes
 
 - No cargar `Helper.install(...)` automaticamente en `Application`.
-- No iniciar registro/conexion DJI automaticamente al abrir la app.
+- No registrar DJI ni conectar dron automaticamente al abrir la app.
 - No cambiar `compileOnly("com.dji:dji-sdk-provided:4.16.4")` a `implementation`.
-- No usar `GONE` ni `INVISIBLE` sobre el `TextureView` del video; usar `alpha`.
+- No usar `GONE` ni `INVISIBLE` sobre el `TextureView`; usar `alpha`.
+- No enviar movimiento real sin nueva fase, limites y prueba segura.
+- Mantener `emergency_stop` disponible antes de cualquier comando de vuelo.
 - No trackear `tmp_dji_aar/`, `build/`, `.gradle/`, `local.properties` ni `__pycache__/`.

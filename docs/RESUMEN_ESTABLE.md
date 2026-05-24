@@ -43,7 +43,7 @@ app/build/outputs/apk/debug/app-debug.apk
 - Instalacion por ADB confirmada usando:
 
 ```powershell
-& "C:\Users\maeca\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r "C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge\app\build\outputs\apk\debug\app-debug.apk"
+& "C:\Users\maeca\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r "C:\Users\maeca\Desktop\Codex\Sessions\DJIMiniBridge-DJI7\app\build\outputs\apk\debug\app-debug.apk"
 ```
 
 ## App Android estable
@@ -52,16 +52,17 @@ La aplicacion quedo estable cuando se separaron las acciones DJI por botones man
 
 Flujo estable:
 
-1. `Cargar DJI`
-2. `Registrar DJI`
-3. `Conectar dron`
-4. `Iniciar video`
-5. `Iniciar puente PC`
-6. `Detener prueba`
-7. `Desconectar dron`
-8. `Cerrar app`
+1. `Preparar DJI`
+2. `Conectar dron`
+3. `Iniciar video`
+4. `Iniciar puente PC`
+5. `Detener prueba`
+6. `Desconectar dron`
+7. `Cerrar app`
 
 La app no debe intentar conectar automaticamente al abrir. Eso fue importante para evitar comportamientos inestables.
+
+La app mantiene la pantalla encendida mientras esta abierta para evitar timeout durante pruebas.
 
 ## DJI SDK estable
 
@@ -130,7 +131,7 @@ GET http://IP_DEL_TELEFONO:8765/status
 Ejemplo confirmado:
 
 ```powershell
-Invoke-RestMethod http://192.168.100.24:8765/status
+Invoke-RestMethod http://IP_DEL_TELEFONO:8765/status
 ```
 
 Campos esperados:
@@ -145,6 +146,10 @@ distanceM
 verticalSpeed
 horizontalSpeed
 videoActive
+virtualStickAvailable
+virtualStickEnabled
+flightControllerReady
+lastCommandAudit
 ```
 
 ## Scripts Python
@@ -158,12 +163,71 @@ Se agregaron clientes Python para consultar el telefono:
 Uso esperado:
 
 ```powershell
-python python_bridge\bridge_client.py 192.168.100.24
-python python_bridge\bridge_ws_client.py 192.168.100.24 --seconds 20
-python python_bridge\dji_console.py 192.168.100.24
+python python_bridge\bridge_client.py IP_DEL_TELEFONO
+python python_bridge\bridge_ws_client.py IP_DEL_TELEFONO --seconds 20
+python python_bridge\dji_console.py IP_DEL_TELEFONO
 ```
 
 La IP debe ser la que muestra la app Android al iniciar el puente PC.
+
+Menu actual de la consola:
+
+```text
+1. Ver estado
+2. Escuchar telemetria
+3. Iniciar video
+4. Detener video
+5. Detener prueba
+6. Desconectar dron
+7. Revisar Virtual Stick
+8. Activar Virtual Stick
+9. Desactivar Virtual Stick
+10. Revisar seguridad vuelo
+11. Enviar cero Virtual Stick
+12. Parada emergencia
+13. Salir
+```
+
+## V2 segura confirmada
+
+Se confirmo una primera capa de control seguro desde Python:
+
+- `check_virtual_stick`
+- `enable_virtual_stick`
+- `disable_virtual_stick`
+- `can_accept_flight_command`
+- `send_zero_stick`
+- `emergency_stop`
+
+`send_zero_stick` envia pitch, roll, yaw y vertical en cero por 3 segundos. No mueve el dron.
+
+Antes de comandos de vuelo, Android valida:
+
+- dron conectado
+- `FlightController` listo
+- Virtual Stick disponible
+- Virtual Stick activo
+- bateria minima
+- telemetria reciente
+- altura dentro de limite
+- distancia dentro de limite
+- comando permitido
+- duracion y velocidad maximas
+
+## Auditoria de comandos
+
+Cada comando WebSocket genera auditoria simple:
+
+- comando recibido
+- hora
+- origen
+- estado del dron
+- estado Virtual Stick
+- decision aceptado/rechazado
+- razon
+- respuesta enviada a Python
+
+La ultima linea queda disponible en `lastCommandAudit`.
 
 ## Botones y comportamiento estable
 
@@ -252,6 +316,13 @@ Confirmado en pruebas:
 - Video estable funcionando.
 - Puente PC por WiFi funcionando.
 - Comunicacion HTTP funcionando.
+- Comunicacion WebSocket funcionando.
+- Comandos operativos desde Python funcionando.
+- Virtual Stick se puede revisar, activar y desactivar.
+- Validacion de seguridad antes de vuelo funcionando.
+- `send_zero_stick` funcionando sin movimiento real.
+- `emergency_stop` funcionando.
+- Auditoria de comandos funcionando.
 - Flujo sin depender del USB para PC durante prueba real.
 
 Esta es la base estable que no se debe romper al agregar control desde Python.

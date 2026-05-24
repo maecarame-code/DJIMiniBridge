@@ -4,23 +4,24 @@ Esta app Android usa DJI Mobile SDK v4.16.4 como puente entre el telefono, el co
 
 ## Flujo estable probado
 
-1. `Cargar DJI`
-   - Ejecuta `Helper.install(getApplication())`.
-   - No se debe mover al `Application`, porque antes causo comportamiento inestable.
+1. `Preparar DJI`
+   - Ejecuta prueba local, carga DJI y registra DJI en una secuencia visible.
+   - Incluye pausas cortas entre pasos.
+   - No inicia conexion al dron automaticamente.
 
-2. `Registrar DJI`
-   - Ejecuta `DJISDKManager.getInstance().registerApp(...)`.
-   - Solo registra el SDK.
-   - No inicia conexion automaticamente.
-
-3. `Conectar dron`
+2. `Conectar dron`
    - Ejecuta `DJISDKManager.getInstance().startConnectionToProduct()`.
    - Cuando el SDK detecta producto, llama `onProductConnect(...)`.
 
-4. `Iniciar video`
+3. `Iniciar video`
    - Usa `VideoFeeder.getInstance().getPrimaryVideoFeed()`.
    - Usa `DJICodecManager` para decodificar video sobre un `TextureView`.
    - El `TextureView` debe mantenerse vivo. No usar `GONE` ni `INVISIBLE`; para ocultar la imagen se usa `alpha`.
+
+4. `Iniciar puente PC`
+   - Expone HTTP en `8765`.
+   - Expone WebSocket en `8766`.
+   - Muestra IP para usar desde Python.
 
 5. `Detener prueba`
    - Detiene el listener de video.
@@ -37,6 +38,8 @@ Esta app Android usa DJI Mobile SDK v4.16.4 como puente entre el telefono, el co
    - Detiene prueba.
    - Detiene puente PC.
    - Cierra la app con `finishAndRemoveTask()`.
+
+La app mantiene la pantalla encendida mientras esta abierta para evitar timeout durante pruebas.
 
 ## Clases DJI usadas
 
@@ -74,6 +77,9 @@ Esta app Android usa DJI Mobile SDK v4.16.4 como puente entre el telefono, el co
 
 - `dji.sdk.flightcontroller.FlightController`
   - Usa `setStateCallback(...)` para recibir telemetria.
+  - Verifica disponibilidad de Virtual Stick.
+  - Activa/desactiva Virtual Stick.
+  - Envia `FlightControlData(0, 0, 0, 0)` en `send_zero_stick` y `emergency_stop`.
 
 - `dji.common.flightcontroller.FlightControllerState`
   - Datos actuales:
@@ -100,6 +106,29 @@ Esta app Android usa DJI Mobile SDK v4.16.4 como puente entre el telefono, el co
   - Decodifica el video recibido por `VideoFeeder`.
   - Envia bytes con `sendDataToDecoder(...)`.
 
+### Virtual Stick
+
+- `dji.common.flightcontroller.virtualstick.RollPitchControlMode`
+  - Configurado en `VELOCITY`.
+
+- `dji.common.flightcontroller.virtualstick.YawControlMode`
+  - Configurado en `ANGULAR_VELOCITY`.
+
+- `dji.common.flightcontroller.virtualstick.VerticalControlMode`
+  - Configurado en `VELOCITY`.
+
+- `dji.common.flightcontroller.virtualstick.FlightCoordinateSystem`
+  - Configurado en `BODY`.
+
+- `dji.common.flightcontroller.virtualstick.FlightControlData`
+  - En DJI-12 solo se usa con valores cero:
+
+```java
+new FlightControlData(0f, 0f, 0f, 0f)
+```
+
+No hay comandos de movimiento real en esta fase.
+
 ## Puente PC / Python
 
 La app incluye un servidor HTTP local:
@@ -107,20 +136,13 @@ La app incluye un servidor HTTP local:
 - Puerto: `8765`
 - Endpoint: `GET /status`
 
-Por USB se puede exponer a la PC con:
+Tambien incluye WebSocket local:
 
-```powershell
-& "C:\Users\maeca\AppData\Local\Android\Sdk\platform-tools\adb.exe" forward tcp:8765 tcp:8765
-```
+- Puerto: `8766`
+- Telemetria en vivo.
+- Comandos operativos y de seguridad.
 
-Ejemplo Python:
-
-```python
-import requests
-
-data = requests.get("http://127.0.0.1:8765/status").json()
-print(data)
-```
+La comunicacion de prueba real debe ir por WiFi porque el USB del telefono se usa con el control DJI.
 
 Respuesta esperada:
 
@@ -134,9 +156,64 @@ Respuesta esperada:
   "distanceM": 0.0,
   "verticalSpeed": 0.0,
   "horizontalSpeed": 0.0,
-  "videoActive": true
+  "videoActive": true,
+  "virtualStickAvailable": true,
+  "virtualStickEnabled": false,
+  "flightControllerReady": true,
+  "lastCommandAudit": "respuesta hora=... comando=... decision=..."
 }
 ```
+
+## Seguridad antes de movimiento
+
+Antes de aceptar comandos de vuelo, Android valida:
+
+- dron conectado
+- `FlightController` listo
+- Virtual Stick disponible
+- Virtual Stick activo
+- bateria minima
+- telemetria reciente
+- altura dentro de limite
+- distancia dentro de limite
+- comando permitido
+- duracion maxima
+- velocidad maxima
+
+Comando de verificacion:
+
+```text
+can_accept_flight_command
+```
+
+Comando de prueba sin movimiento:
+
+```text
+send_zero_stick
+```
+
+Comando de parada:
+
+```text
+emergency_stop
+```
+
+`send_zero_stick` envia valores cero por 3 segundos. Si algo falla, se debe usar `emergency_stop`.
+
+## Auditoria
+
+Cada comando WebSocket registra:
+
+- comando recibido
+- hora
+- origen
+- estado del dron
+- estado Virtual Stick
+- aceptado o rechazado
+- razon
+- respuesta enviada a Python
+
+La ultima linea se expone como `lastCommandAudit`.
 
 ## Reglas importantes
 
@@ -145,4 +222,5 @@ Respuesta esperada:
 - No registrar DJI ni conectar dron automaticamente al abrir la app.
 - No poner overlays encima del `TextureView` hasta tener una prueba controlada.
 - No destruir el `TextureView` para ocultar video; usar `alpha`.
-- Mantener cada accion en botones separados para detectar fallos por capa.
+- No enviar movimiento real hasta crear una fase nueva y probar limites.
+- Mantener `emergency_stop` disponible antes de cualquier comando de vuelo.
