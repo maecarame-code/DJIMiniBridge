@@ -740,7 +740,10 @@ public class MainActivity extends AppCompatActivity {
                 + "\"distanceM\":" + formatNumber(bridgeDistance) + ","
                 + "\"verticalSpeed\":" + formatNumber(bridgeVerticalSpeed) + ","
                 + "\"horizontalSpeed\":" + formatNumber(bridgeHorizontalSpeed) + ","
-                + "\"videoActive\":" + videoIniciado
+                + "\"videoActive\":" + videoIniciado + ","
+                + "\"virtualStickAvailable\":" + virtualStickAvailable + ","
+                + "\"virtualStickEnabled\":" + virtualStickEnabled + ","
+                + "\"flightControllerReady\":" + flightControllerReady
                 + "}";
     }
 

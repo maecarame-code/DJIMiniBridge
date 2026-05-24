@@ -93,7 +93,10 @@ def print_message(message: str) -> None:
             f"bateria={status.get('batteryPercent')}% "
             f"H={status.get('altitudeM')}m "
             f"D={status.get('distanceM')}m "
-            f"video={status.get('videoActive')}"
+            f"video={status.get('videoActive')} "
+            f"vsDisponible={status.get('virtualStickAvailable')} "
+            f"vsActivo={status.get('virtualStickEnabled')} "
+            f"fcListo={status.get('flightControllerReady')}"
         )
     elif data.get("type") == "ack":
         result = "OK" if data.get("ok") else "ERROR"
