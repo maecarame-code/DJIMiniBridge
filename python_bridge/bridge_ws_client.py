@@ -97,6 +97,7 @@ def print_message(message: str) -> None:
             f"vsDisponible={status.get('virtualStickAvailable')} "
             f"vsActivo={status.get('virtualStickEnabled')} "
             f"fcListo={status.get('flightControllerReady')} "
+            f"armado={status.get('motionArmed')} "
             f"ultimoLog={status.get('lastCommandAudit')}"
         )
     elif data.get("type") == "ack":
@@ -119,7 +120,8 @@ def main() -> None:
         help=(
             "Comando opcional: get_status, start_video, stop_video, stop_test, "
             "disconnect_drone, check_virtual_stick, enable_virtual_stick, disable_virtual_stick, "
-            "can_accept_flight_command, send_zero_stick, emergency_stop."
+            "can_accept_flight_command, send_zero_stick, emergency_stop, motion_safety_status, "
+            "arm_motion, disarm_motion."
         ),
     )
     parser.add_argument("--seconds", type=int, default=20, help="Segundos para escuchar telemetria.")

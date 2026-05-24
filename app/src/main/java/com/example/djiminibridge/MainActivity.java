@@ -99,6 +99,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean flightControllerReady;
     private volatile long lastTelemetryAtMs;
     private volatile String lastCommandAudit = "--";
+    private volatile boolean motionArmed;
     private boolean registroSolicitado;
     private boolean djiCargado;
     private boolean djiRegistrado;
@@ -642,6 +643,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void detenerPrueba() {
+        motionArmed = false;
         detenerVideo();
         limpiarLecturaBateria();
         limpiarLecturaTelemetria();
@@ -660,6 +662,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void desconectarDron() {
+        motionArmed = false;
         detenerVideo();
         limpiarLecturaBateria();
         limpiarLecturaTelemetria();
@@ -764,6 +767,7 @@ public class MainActivity extends AppCompatActivity {
                 + "\"virtualStickAvailable\":" + virtualStickAvailable + ","
                 + "\"virtualStickEnabled\":" + virtualStickEnabled + ","
                 + "\"flightControllerReady\":" + flightControllerReady + ","
+                + "\"motionArmed\":" + motionArmed + ","
                 + "\"lastCommandAudit\":\"" + jsonEscape(lastCommandAudit) + "\""
                 + "}";
     }
@@ -824,6 +828,19 @@ public class MainActivity extends AppCompatActivity {
 
         if ("can_accept_flight_command".equals(normalized)) {
             return manejarCanAcceptFlightCommand();
+        }
+
+        if ("motion_safety_status".equals(normalized)) {
+            return manejarMotionSafetyStatus();
+        }
+
+        if ("arm_motion".equals(normalized)) {
+            return manejarArmMotion();
+        }
+
+        if ("disarm_motion".equals(normalized)) {
+            motionArmed = false;
+            return crearRespuestaComando(true, "disarm_motion", "movimiento real desarmado");
         }
 
         if ("send_zero_stick".equals(normalized)) {
@@ -941,8 +958,32 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
+    private String manejarMotionSafetyStatus() {
+        String rejection = validarComandoVueloSeguro("test_yaw_left_minimal", MAX_FLIGHT_COMMAND_DURATION_SECONDS, MAX_FLIGHT_COMMAND_SPEED);
+        return crearRespuestaComando(
+                rejection == null,
+                "motion_safety_status",
+                rejection == null ? "movimiento real armado y permitido por validaciones actuales" : rejection
+        );
+    }
+
+    private String manejarArmMotion() {
+        String rejection = validarComandoVueloSeguro("test_yaw_left_minimal", MAX_FLIGHT_COMMAND_DURATION_SECONDS, MAX_FLIGHT_COMMAND_SPEED, false);
+        if (rejection != null) {
+            motionArmed = false;
+            return crearRespuestaComando(false, "arm_motion", rejection);
+        }
+
+        motionArmed = true;
+        return crearRespuestaComando(true, "arm_motion", "movimiento real armado; no se envio movimiento");
+    }
+
     private String validarComandoVueloSeguro(String command, int durationSeconds, float maxSpeed) {
-        if (!"send_zero_stick".equals(command)) {
+        return validarComandoVueloSeguro(command, durationSeconds, maxSpeed, true);
+    }
+
+    private String validarComandoVueloSeguro(String command, int durationSeconds, float maxSpeed, boolean requireMotionArmed) {
+        if (!"send_zero_stick".equals(command) && !"test_yaw_left_minimal".equals(command)) {
             return "comando no permitido: " + command;
         }
         if (durationSeconds <= 0 || durationSeconds > MAX_FLIGHT_COMMAND_DURATION_SECONDS) {
@@ -974,6 +1015,9 @@ public class MainActivity extends AppCompatActivity {
         }
         if (bridgeDistance < 0f || bridgeDistance > MAX_SAFE_DISTANCE_M) {
             return "distancia fuera de limite";
+        }
+        if (requireMotionArmed && !"send_zero_stick".equals(command) && !motionArmed) {
+            return "movimiento real no armado";
         }
         return null;
     }
@@ -1028,6 +1072,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String manejarEmergencyStop() {
+        motionArmed = false;
         emergencyStopRequested = true;
         zeroStickActive = false;
         FlightController flightController = obtenerFlightControllerVirtualStick();
@@ -1225,6 +1270,7 @@ public class MainActivity extends AppCompatActivity {
         virtualStickAvailable = false;
         virtualStickEnabled = false;
         flightControllerReady = false;
+        motionArmed = false;
     }
 
     @Override
