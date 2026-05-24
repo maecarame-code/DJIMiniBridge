@@ -11,11 +11,12 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.secneo.sdk.Helper;
@@ -52,17 +53,11 @@ public class MainActivity extends AppCompatActivity {
     private Button registerDjiButton;
     private Button connectDroneButton;
     private Button startVideoButton;
-    private Button stopVideoButton;
     private Button closeTestButton;
-    private Button disconnectDroneButton;
     private Button bridgeButton;
     private TextureView videoView;
     private DjiVideoPreview videoPreview;
-    private TextView productStatus;
-    private TextView modelStatus;
-    private TextView batteryStatus;
-    private TextView telemetryStatus;
-    private TextView bridgeStatus;
+    private TextView summaryStatus;
     private BaseProduct connectedProduct;
     private Battery connectedBattery;
     private FlightController connectedFlightController;
@@ -76,11 +71,15 @@ public class MainActivity extends AppCompatActivity {
     private volatile float bridgeDistance = 0f;
     private volatile float bridgeVerticalSpeed = 0f;
     private volatile float bridgeHorizontalSpeed = 0f;
+    private volatile String visibleBridgeHttp = "--";
+    private volatile String visibleBridgeWs = "--";
     private boolean registroSolicitado;
     private boolean djiCargado;
     private boolean djiRegistrado;
     private boolean dronConectado;
     private boolean videoIniciado;
+    private boolean preparacionEnCurso;
+    private final Handler preparacionHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -108,20 +107,19 @@ public class MainActivity extends AppCompatActivity {
                 1f
         );
 
-        ScrollView controlsScroll = new ScrollView(this);
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER_HORIZONTAL);
         controls.setOrientation(LinearLayout.VERTICAL);
-        controls.setPadding(dp(12), dp(12), dp(12), dp(12));
+        controls.setPadding(dp(8), dp(8), dp(8), dp(8));
         controls.setBackground(crearFondo(Color.rgb(22, 27, 32), dp(6)));
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(
-                dp(300),
+                dp(230),
                 LinearLayout.LayoutParams.MATCH_PARENT
         );
 
         startButton = new Button(this);
-        startButton.setText("Prueba local");
-        startButton.setOnClickListener(view -> status.setText("Pantalla estable"));
+        startButton.setText("Preparar DJI");
+        startButton.setOnClickListener(view -> prepararDJI());
         prepararBotonPanel(startButton);
 
         loadDjiButton = new Button(this);
@@ -136,58 +134,36 @@ public class MainActivity extends AppCompatActivity {
 
         connectDroneButton = new Button(this);
         connectDroneButton.setText("Conectar dron");
-        connectDroneButton.setOnClickListener(view -> conectarDron());
+        connectDroneButton.setOnClickListener(view -> alternarConexionDron());
         prepararBotonPanel(connectDroneButton);
 
         startVideoButton = new Button(this);
         startVideoButton.setText("Iniciar video");
-        startVideoButton.setOnClickListener(view -> iniciarVideo());
+        startVideoButton.setOnClickListener(view -> alternarVideo());
         prepararBotonPanel(startVideoButton);
-
-        stopVideoButton = new Button(this);
-        stopVideoButton.setText("Detener prueba");
-        stopVideoButton.setOnClickListener(view -> detenerPrueba());
-        prepararBotonPanel(stopVideoButton);
 
         closeTestButton = new Button(this);
         closeTestButton.setText("Cerrar app");
         closeTestButton.setOnClickListener(view -> cerrarApp());
         prepararBotonPanel(closeTestButton);
 
-        disconnectDroneButton = new Button(this);
-        disconnectDroneButton.setText("Desconectar dron");
-        disconnectDroneButton.setOnClickListener(view -> desconectarDron());
-        prepararBotonPanel(disconnectDroneButton);
-
         bridgeButton = new Button(this);
         bridgeButton.setText("Iniciar puente PC");
         bridgeButton.setOnClickListener(view -> alternarPuentePC());
         prepararBotonPanel(bridgeButton);
 
-        productStatus = crearLineaEstado("Conexion: sin conectar");
-        modelStatus = crearLineaEstado("Modelo: --");
-        batteryStatus = crearLineaEstado("Bateria: --");
-        telemetryStatus = crearLineaEstado("H: 0.0m | D: 0.0m\nVS: 0.0 | HS: 0.0");
-        bridgeStatus = crearLineaEstado("Puente PC: detenido");
+        summaryStatus = crearLineaEstado(crearResumenEstado());
+        summaryStatus.setTextSize(15);
 
         root.addView(videoView, videoParams);
-        controls.addView(status, matchWidth());
-        controls.addView(productStatus, matchWidth());
-        controls.addView(modelStatus, matchWidth());
-        controls.addView(batteryStatus, matchWidth());
-        controls.addView(telemetryStatus, matchWidth());
-        controls.addView(bridgeStatus, matchWidth());
-        controls.addView(startButton, matchWidth());
-        controls.addView(loadDjiButton, matchWidth());
-        controls.addView(registerDjiButton, matchWidth());
-        controls.addView(connectDroneButton, matchWidth());
-        controls.addView(startVideoButton, matchWidth());
-        controls.addView(stopVideoButton, matchWidth());
-        controls.addView(closeTestButton, matchWidth());
-        controls.addView(disconnectDroneButton, matchWidth());
-        controls.addView(bridgeButton, matchWidth());
-        controlsScroll.addView(controls);
-        root.addView(controlsScroll, controlsParams);
+        controls.addView(status, fixedHeight(dp(32)));
+        controls.addView(summaryStatus, fixedHeight(dp(132)));
+        controls.addView(startButton, fixedHeight(dp(31)));
+        controls.addView(connectDroneButton, fixedHeight(dp(31)));
+        controls.addView(startVideoButton, fixedHeight(dp(31)));
+        controls.addView(bridgeButton, fixedHeight(dp(31)));
+        controls.addView(closeTestButton, fixedHeight(dp(31)));
+        root.addView(controls, controlsParams);
         setContentView(root);
     }
 
@@ -205,9 +181,9 @@ public class MainActivity extends AppCompatActivity {
     private void prepararBotonPanel(Button button) {
         button.setAllCaps(false);
         button.setTextColor(Color.WHITE);
-        button.setTextSize(13);
+        button.setTextSize(15);
         button.setBackground(crearFondo(Color.argb(190, 42, 48, 56), dp(4)));
-        button.setMinHeight(dp(36));
+        button.setMinHeight(dp(31));
         button.setPadding(dp(6), 0, dp(6), 0);
     }
 
@@ -228,22 +204,117 @@ public class MainActivity extends AppCompatActivity {
         return params;
     }
 
+    private LinearLayout.LayoutParams fixedHeight(int height) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                height
+        );
+        params.setMargins(0, 0, 0, dp(3));
+        return params;
+    }
+
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    private void cargarDJI() {
-        if (djiCargado) {
-            status.setText("DJI ya fue cargado");
+    private void actualizarResumenEstado() {
+        if (summaryStatus != null) {
+            summaryStatus.setText(crearResumenEstado());
+        }
+    }
+
+    private String crearResumenEstado() {
+        String batteryText = bridgeBatteryPercent >= 0
+                ? bridgeBatteryPercent + "% | " + bridgeBatteryVoltage + " mV"
+                : "--";
+
+        return String.format(
+                java.util.Locale.US,
+                "Con: %s | Bat: %s\nH %.1fm | D %.1fm\nVS %.1f | HS %.1f\nHTTP: %s\nWS: %s",
+                bridgeConnection,
+                batteryText,
+                bridgeAltitude,
+                bridgeDistance,
+                bridgeVerticalSpeed,
+                bridgeHorizontalSpeed,
+                visibleBridgeHttp,
+                visibleBridgeWs
+        );
+    }
+
+    private void prepararDJI() {
+        if (preparacionEnCurso) {
+            status.setText("Preparacion DJI en curso...");
             return;
         }
 
+        preparacionEnCurso = true;
+        startButton.setEnabled(false);
+        status.setText("1/3 Prueba local...");
+        preparacionHandler.postDelayed(() -> {
+            status.setText("1/3 Prueba local OK");
+            preparacionHandler.postDelayed(this::prepararPasoCargarDJI, 700L);
+        }, 700L);
+    }
+
+    private void prepararPasoCargarDJI() {
+        status.setText("2/3 Cargando DJI...");
+        if (!cargarDJIInterno()) {
+            finalizarPreparacion();
+            return;
+        }
+
+        status.setText("2/3 Cargando DJI OK");
+        preparacionHandler.postDelayed(this::prepararPasoRegistrarDJI, 700L);
+    }
+
+    private void prepararPasoRegistrarDJI() {
+        status.setText("3/3 Registrando DJI...");
+        preparacionHandler.postDelayed(() -> {
+            if (!djiCargado) {
+                status.setText("2/3 Cargando DJI fallo");
+                finalizarPreparacion();
+                return;
+            }
+
+            if (registroSolicitado || djiRegistrado) {
+                status.setText(djiRegistrado ? "3/3 Registrando DJI OK" : "3/3 Registro DJI en curso...");
+                finalizarPreparacion();
+                return;
+            }
+
+            if (tienePermisosRequeridosDJI()) {
+                registrarDJI();
+                return;
+            }
+
+            status.setText("3/3 Esperando permisos DJI...");
+            ActivityCompat.requestPermissions(this, REQUESTED_PERMISSIONS, REQUEST_DJI_PERMISSIONS);
+        }, 700L);
+    }
+
+    private void finalizarPreparacion() {
+        preparacionEnCurso = false;
+        startButton.setEnabled(true);
+    }
+
+    private void cargarDJI() {
+        if (cargarDJIInterno()) {
+            status.setText(djiCargado ? "Loader DJI cargado" : "DJI ya fue cargado");
+        }
+    }
+
+    private boolean cargarDJIInterno() {
         try {
+            if (djiCargado) {
+                return true;
+            }
             Helper.install(getApplication());
             djiCargado = true;
-            status.setText("Loader DJI cargado");
+            return true;
         } catch (Throwable throwable) {
-            status.setText("Error cargando DJI: " + throwable.getClass().getSimpleName());
+            status.setText("2/3 Cargando DJI fallo: " + throwable.getClass().getSimpleName());
+            return false;
         }
     }
 
@@ -279,10 +350,11 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == REQUEST_DJI_PERMISSIONS && tienePermisosRequeridosDJI()) {
-            status.setText("Iniciando DJI SDK...");
+            status.setText(preparacionEnCurso ? "3/3 Registrando DJI..." : "Iniciando DJI SDK...");
             registrarDJI();
         } else {
-            status.setText("Permisos DJI requeridos");
+            status.setText(preparacionEnCurso ? "3/3 Permisos DJI requeridos" : "Permisos DJI requeridos");
+            finalizarPreparacion();
         }
     }
 
@@ -297,15 +369,21 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onRegister(DJIError error) {
         if (error == DJISDKError.REGISTRATION_SUCCESS) {
-                            runOnUiThread(() ->
-                                    status.setText("DJI SDK registrado correctamente")
-                            );
-                            djiRegistrado = true;
+                            runOnUiThread(() -> {
+                                status.setText(preparacionEnCurso
+                                        ? "3/3 Registrando DJI OK"
+                                        : "DJI SDK registrado correctamente");
+                                djiRegistrado = true;
+                                finalizarPreparacion();
+                            });
 
                         } else {
-                            runOnUiThread(() ->
-                                    status.setText("Error DJI SDK: " + error.getDescription())
-                            );
+                            runOnUiThread(() -> {
+                                status.setText(preparacionEnCurso
+                                        ? "3/3 Registrando DJI fallo: " + error.getDescription()
+                                        : "Error DJI SDK: " + error.getDescription());
+                                finalizarPreparacion();
+                            });
                         }
                     }
 
@@ -315,6 +393,7 @@ public class MainActivity extends AppCompatActivity {
                         dronConectado = true;
                         runOnUiThread(() -> {
                             status.setText("Drone conectado");
+                            actualizarBotonConexion();
                             actualizarEstado();
                         });
                     }
@@ -326,17 +405,16 @@ public class MainActivity extends AppCompatActivity {
                         detenerVideo();
                         runOnUiThread(() -> {
                             status.setText("Drone desconectado");
-                            productStatus.setText("Conexion: desconectado");
-                            modelStatus.setText("Modelo: --");
                             limpiarLecturaBateria();
                             limpiarLecturaTelemetria();
-                            batteryStatus.setText("Bateria: --");
-                            telemetryStatus.setText("H: 0.0m | D: 0.0m\nVS: 0.0 | HS: 0.0");
+                            actualizarBotonConexion();
+                            actualizarBotonVideo();
                             bridgeConnection = "desconectado";
                             bridgeModel = "--";
                             bridgeBatteryPercent = -1;
                             bridgeBatteryVoltage = 0;
                             limpiarDatosTelemetria();
+                            actualizarResumenEstado();
                         });
                     }
 
@@ -359,9 +437,26 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
+    private void alternarConexionDron() {
+        if (dronConectado || (connectedProduct != null && connectedProduct.isConnected())) {
+            desconectarDron();
+        } else {
+            conectarDron();
+        }
+    }
+
     private void conectarDron() {
         if (!djiRegistrado) {
             status.setText("Primero registra DJI");
+            return;
+        }
+
+        connectedProduct = DJISDKManager.getInstance().getProduct();
+        if (connectedProduct != null && connectedProduct.isConnected()) {
+            dronConectado = true;
+            status.setText("Drone conectado");
+            actualizarBotonConexion();
+            actualizarEstado();
             return;
         }
 
@@ -377,29 +472,27 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (product == null) {
-            productStatus.setText("Conexion: sin producto");
-            modelStatus.setText("Modelo: --");
-            batteryStatus.setText("Bateria: --");
             limpiarLecturaTelemetria();
-            telemetryStatus.setText("H: 0.0m | D: 0.0m\nVS: 0.0 | HS: 0.0");
             bridgeConnection = "sin producto";
             bridgeModel = "--";
             bridgeBatteryPercent = -1;
             bridgeBatteryVoltage = 0;
             limpiarDatosTelemetria();
+            actualizarResumenEstado();
             return;
         }
 
-        productStatus.setText(product.isConnected() ? "Conexion: conectado" : "Conexion: desconectado");
-        modelStatus.setText("Modelo: " + product.getModel());
         bridgeConnection = product.isConnected() ? "conectado" : "desconectado";
         bridgeModel = String.valueOf(product.getModel());
+        actualizarResumenEstado();
         activarLecturaTelemetria(product);
 
         Battery battery = product.getBattery();
         if (battery == null) {
             limpiarLecturaBateria();
-            batteryStatus.setText("Bateria: no disponible");
+            bridgeBatteryPercent = -1;
+            bridgeBatteryVoltage = 0;
+            actualizarResumenEstado();
             return;
         }
 
@@ -409,26 +502,25 @@ public class MainActivity extends AppCompatActivity {
             public void onUpdate(BatteryState batteryState) {
                 bridgeBatteryPercent = batteryState.getChargeRemainingInPercent();
                 bridgeBatteryVoltage = batteryState.getVoltage();
-                runOnUiThread(() -> batteryStatus.setText(
-                        "Bateria: " + batteryState.getChargeRemainingInPercent() + "% | "
-                                + batteryState.getVoltage() + " mV"
-                ));
+                runOnUiThread(() -> actualizarResumenEstado());
             }
         });
-        batteryStatus.setText("Bateria: leyendo...");
+        actualizarResumenEstado();
     }
 
     private void activarLecturaTelemetria(BaseProduct product) {
         if (!(product instanceof Aircraft)) {
             limpiarLecturaTelemetria();
-            telemetryStatus.setText("Telemetria: no disponible");
+            limpiarDatosTelemetria();
+            actualizarResumenEstado();
             return;
         }
 
         FlightController flightController = ((Aircraft) product).getFlightController();
         if (flightController == null) {
             limpiarLecturaTelemetria();
-            telemetryStatus.setText("Telemetria: no disponible");
+            limpiarDatosTelemetria();
+            actualizarResumenEstado();
             return;
         }
 
@@ -439,7 +531,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> actualizarTelemetria(state));
             }
         });
-        telemetryStatus.setText("Telemetria: leyendo...");
+        actualizarResumenEstado();
     }
 
     private void actualizarTelemetria(FlightControllerState state) {
@@ -456,14 +548,7 @@ public class MainActivity extends AppCompatActivity {
         bridgeVerticalSpeed = verticalSpeed;
         bridgeHorizontalSpeed = horizontalSpeed;
 
-        telemetryStatus.setText(String.format(
-                java.util.Locale.US,
-                "H: %.1fm | D: %.1fm\nVS: %.1f | HS: %.1f",
-                altitude,
-                distance,
-                verticalSpeed,
-                horizontalSpeed
-        ));
+        actualizarResumenEstado();
     }
 
     private float calcularDistanciaHome(LocationCoordinate2D home, LocationCoordinate3D aircraftLocation) {
@@ -498,6 +583,16 @@ public class MainActivity extends AppCompatActivity {
             videoView.setAlpha(0f);
         }
         status.setText(videoIniciado ? "Video iniciado" : "Video no esta listo aun");
+        actualizarBotonVideo();
+    }
+
+    private void alternarVideo() {
+        if (videoIniciado) {
+            detenerVideo();
+            status.setText("Video detenido");
+        } else {
+            iniciarVideo();
+        }
     }
 
     private void detenerVideo() {
@@ -506,6 +601,7 @@ public class MainActivity extends AppCompatActivity {
         }
         videoIniciado = false;
         videoView.setAlpha(0f);
+        actualizarBotonVideo();
     }
 
     private void detenerPrueba() {
@@ -514,15 +610,14 @@ public class MainActivity extends AppCompatActivity {
         limpiarLecturaTelemetria();
         connectedProduct = DJISDKManager.getInstance().getProduct();
         dronConectado = connectedProduct != null && connectedProduct.isConnected();
-        productStatus.setText(dronConectado ? "Conexion: conectado" : "Conexion: sin conectar");
-        modelStatus.setText("Modelo: --");
-        batteryStatus.setText("Bateria: --");
-        telemetryStatus.setText("H: 0.0m | D: 0.0m\nVS: 0.0 | HS: 0.0");
+        actualizarBotonConexion();
+        actualizarBotonVideo();
         bridgeConnection = dronConectado ? "conectado" : "sin conectar";
         bridgeModel = "--";
         bridgeBatteryPercent = -1;
         bridgeBatteryVoltage = 0;
         limpiarDatosTelemetria();
+        actualizarResumenEstado();
         status.setText("Prueba detenida");
     }
 
@@ -540,16 +635,27 @@ public class MainActivity extends AppCompatActivity {
 
         connectedProduct = null;
         dronConectado = false;
-        productStatus.setText("Conexion: desconectado");
-        modelStatus.setText("Modelo: --");
-        batteryStatus.setText("Bateria: --");
-        telemetryStatus.setText("H: 0.0m | D: 0.0m\nVS: 0.0 | HS: 0.0");
+        actualizarBotonConexion();
+        actualizarBotonVideo();
         bridgeConnection = "desconectado";
         bridgeModel = "--";
         bridgeBatteryPercent = -1;
         bridgeBatteryVoltage = 0;
         limpiarDatosTelemetria();
+        actualizarResumenEstado();
         status.setText("Dron desconectado");
+    }
+
+    private void actualizarBotonConexion() {
+        if (connectDroneButton != null) {
+            connectDroneButton.setText(dronConectado ? "Desconectar dron" : "Conectar dron");
+        }
+    }
+
+    private void actualizarBotonVideo() {
+        if (startVideoButton != null) {
+            startVideoButton.setText(videoIniciado ? "Detener video" : "Iniciar video");
+        }
     }
 
     private void cerrarApp() {
@@ -574,12 +680,16 @@ public class MainActivity extends AppCompatActivity {
         boolean webSocketStarted = bridgeWebSocketServer.start();
         if (httpStarted && webSocketStarted) {
             String phoneIp = obtenerIpTelefono();
-            bridgeStatus.setText("HTTP: " + phoneIp + ":8765\nWS: " + phoneIp + ":8766");
+            visibleBridgeHttp = phoneIp + ":8765";
+            visibleBridgeWs = phoneIp + ":8766";
+            actualizarResumenEstado();
             bridgeButton.setText("Detener puente PC");
             status.setText("Puente PC activo");
         } else {
             detenerPuentePC();
-            bridgeStatus.setText("Puente PC: error");
+            visibleBridgeHttp = "error";
+            visibleBridgeWs = "error";
+            actualizarResumenEstado();
             status.setText("No se pudo iniciar puente PC");
         }
     }
@@ -593,9 +703,9 @@ public class MainActivity extends AppCompatActivity {
             bridgeWebSocketServer.stop();
             bridgeWebSocketServer = null;
         }
-        if (bridgeStatus != null) {
-            bridgeStatus.setText("Puente PC: detenido");
-        }
+        visibleBridgeHttp = "--";
+        visibleBridgeWs = "--";
+        actualizarResumenEstado();
         if (bridgeButton != null) {
             bridgeButton.setText("Iniciar puente PC");
         }
@@ -616,19 +726,50 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String manejarComandoPuente(String command) {
-        String normalized = command == null ? "" : command.toLowerCase(java.util.Locale.US);
-        if (normalized.contains("get_status")) {
+        String normalized = command == null ? "" : command.trim().toLowerCase(java.util.Locale.US);
+        if ("get_status".equals(normalized)) {
             return "{\"type\":\"status\",\"data\":" + getBridgeStatusJson() + "}";
         }
-        if (normalized.contains("start_video")) {
+
+        if ("start_video".equals(normalized)) {
+            if (!dronConectado) {
+                return crearRespuestaComando(false, "start_video", "dron no conectado");
+            }
             runOnUiThread(this::iniciarVideo);
-            return "{\"type\":\"ack\",\"command\":\"start_video\"}";
+            return crearRespuestaComando(true, "start_video", "video iniciado");
         }
-        if (normalized.contains("stop_video")) {
+
+        if ("stop_video".equals(normalized)) {
+            if (!videoIniciado) {
+                return crearRespuestaComando(true, "stop_video", "video ya estaba detenido");
+            }
+            runOnUiThread(this::detenerVideo);
+            return crearRespuestaComando(true, "stop_video", "video detenido");
+        }
+
+        if ("stop_test".equals(normalized)) {
             runOnUiThread(this::detenerPrueba);
-            return "{\"type\":\"ack\",\"command\":\"stop_video\"}";
+            return crearRespuestaComando(true, "stop_test", "prueba detenida");
         }
-        return "{\"type\":\"error\",\"message\":\"unknown command\"}";
+
+        if ("disconnect_drone".equals(normalized)) {
+            if (!dronConectado && (connectedProduct == null || !connectedProduct.isConnected())) {
+                return crearRespuestaComando(false, "disconnect_drone", "dron no conectado");
+            }
+            runOnUiThread(this::desconectarDron);
+            return crearRespuestaComando(true, "disconnect_drone", "dron desconectado");
+        }
+
+        return crearRespuestaComando(false, normalized, "comando desconocido");
+    }
+
+    private String crearRespuestaComando(boolean ok, String command, String message) {
+        return "{"
+                + "\"type\":\"ack\","
+                + "\"ok\":" + ok + ","
+                + "\"command\":\"" + jsonEscape(command) + "\","
+                + "\"message\":\"" + jsonEscape(message) + "\""
+                + "}";
     }
 
     private String formatNumber(float value) {

@@ -43,8 +43,10 @@ def menu(host: str, http_port: int, ws_port: int) -> None:
         print("1. Ver estado")
         print("2. Escuchar telemetria")
         print("3. Iniciar video")
-        print("4. Detener prueba")
-        print("5. Salir")
+        print("4. Detener video")
+        print("5. Detener prueba")
+        print("6. Desconectar dron")
+        print("7. Salir")
         option = input("Opcion: ").strip()
 
         try:
@@ -57,6 +59,10 @@ def menu(host: str, http_port: int, ws_port: int) -> None:
             elif option == "4":
                 send_command(host, ws_port, "stop_video")
             elif option == "5":
+                send_command(host, ws_port, "stop_test")
+            elif option == "6":
+                send_command(host, ws_port, "disconnect_drone")
+            elif option == "7":
                 break
             else:
                 print("Opcion no valida.")
