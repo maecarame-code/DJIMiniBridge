@@ -118,7 +118,7 @@ def main() -> None:
         help=(
             "Comando opcional: get_status, start_video, stop_video, stop_test, "
             "disconnect_drone, check_virtual_stick, enable_virtual_stick, disable_virtual_stick, "
-            "can_accept_flight_command, emergency_stop."
+            "can_accept_flight_command, send_zero_stick, emergency_stop."
         ),
     )
     parser.add_argument("--seconds", type=int, default=20, help="Segundos para escuchar telemetria.")

@@ -15,6 +15,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.TextureView;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -53,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private static final float MAX_SAFE_DISTANCE_M = 50f;
     private static final int MAX_FLIGHT_COMMAND_DURATION_SECONDS = 3;
     private static final float MAX_FLIGHT_COMMAND_SPEED = 0.5f;
+    private static final long ZERO_STICK_INTERVAL_MS = 100L;
 
     private static final String[] REQUESTED_PERMISSIONS = new String[]{
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -99,10 +101,13 @@ public class MainActivity extends AppCompatActivity {
     private boolean videoIniciado;
     private boolean preparacionEnCurso;
     private final Handler preparacionHandler = new Handler(Looper.getMainLooper());
+    private final Object zeroStickLock = new Object();
+    private volatile boolean zeroStickActive;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         LinearLayout root = new LinearLayout(this);
         root.setGravity(Gravity.CENTER);
@@ -807,6 +812,10 @@ public class MainActivity extends AppCompatActivity {
             return manejarCanAcceptFlightCommand();
         }
 
+        if ("send_zero_stick".equals(normalized)) {
+            return manejarSendZeroStick();
+        }
+
         if ("emergency_stop".equals(normalized)) {
             return manejarEmergencyStop();
         }
@@ -954,29 +963,66 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
+    private String manejarSendZeroStick() {
+        synchronized (zeroStickLock) {
+            if (zeroStickActive) {
+                return crearRespuestaComando(false, "send_zero_stick", "send_zero_stick ya esta activo");
+            }
+            zeroStickActive = true;
+        }
+
+        String rejection = validarComandoVueloSeguro("send_zero_stick", MAX_FLIGHT_COMMAND_DURATION_SECONDS, 0f);
+        if (rejection != null) {
+            zeroStickActive = false;
+            return crearRespuestaComando(false, "send_zero_stick", rejection);
+        }
+
+        FlightController flightController = obtenerFlightControllerVirtualStick();
+        if (flightController == null) {
+            zeroStickActive = false;
+            limpiarEstadoVirtualStick();
+            return crearRespuestaComando(false, "send_zero_stick", "flight controller no disponible");
+        }
+
+        int sends = (int) ((MAX_FLIGHT_COMMAND_DURATION_SECONDS * 1000L) / ZERO_STICK_INTERVAL_MS);
+        for (int index = 0; index < sends; index++) {
+            if (!zeroStickActive) {
+                return crearRespuestaComando(false, "send_zero_stick", "detenido por emergency_stop");
+            }
+
+            DJIError error = enviarCeroVirtualStick(flightController, 1);
+            if (error != null) {
+                zeroStickActive = false;
+                manejarEmergencyStop();
+                return crearRespuestaComando(false, "send_zero_stick", "error enviando cero: " + error.getDescription());
+            }
+
+            try {
+                Thread.sleep(ZERO_STICK_INTERVAL_MS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                zeroStickActive = false;
+                manejarEmergencyStop();
+                return crearRespuestaComando(false, "send_zero_stick", "interrumpido enviando cero");
+            }
+        }
+
+        zeroStickActive = false;
+        return crearRespuestaComando(true, "send_zero_stick", "ceros enviados por 3 segundos sin movimiento real");
+    }
+
     private String manejarEmergencyStop() {
+        zeroStickActive = false;
         FlightController flightController = obtenerFlightControllerVirtualStick();
         if (flightController == null) {
             runOnUiThread(this::detenerPrueba);
             return crearRespuestaComando(false, "emergency_stop", "flight controller no disponible; prueba detenida");
         }
 
-        AtomicReference<DJIError> zeroResult = new AtomicReference<>();
-        CountDownLatch zeroLatch = new CountDownLatch(1);
-        flightController.sendVirtualStickFlightControlData(new FlightControlData(0f, 0f, 0f, 0f), error -> {
-            zeroResult.set(error);
-            zeroLatch.countDown();
-        });
-
-        try {
-            if (!zeroLatch.await(2, TimeUnit.SECONDS)) {
-                runOnUiThread(this::detenerPrueba);
-                return crearRespuestaComando(false, "emergency_stop", "timeout enviando cero; prueba detenida");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
+        DJIError zeroError = enviarCeroVirtualStick(flightController, 2);
+        if (zeroError == DJISDKError.COMMON_TIMEOUT) {
             runOnUiThread(this::detenerPrueba);
-            return crearRespuestaComando(false, "emergency_stop", "interrumpido enviando cero; prueba detenida");
+            return crearRespuestaComando(false, "emergency_stop", "timeout enviando cero; prueba detenida");
         }
 
         AtomicReference<DJIError> disableResult = new AtomicReference<>();
@@ -995,7 +1041,6 @@ public class MainActivity extends AppCompatActivity {
         virtualStickEnabled = false;
         runOnUiThread(this::detenerPrueba);
 
-        DJIError zeroError = zeroResult.get();
         DJIError disableError = disableResult.get();
         if (zeroError != null) {
             return crearRespuestaComando(false, "emergency_stop", "cero fallo: " + zeroError.getDescription());
@@ -1004,6 +1049,25 @@ public class MainActivity extends AppCompatActivity {
             return crearRespuestaComando(false, "emergency_stop", "cero enviado; desactivar fallo: " + disableError.getDescription());
         }
         return crearRespuestaComando(true, "emergency_stop", "cero enviado, virtual stick desactivado y prueba detenida");
+    }
+
+    private DJIError enviarCeroVirtualStick(FlightController flightController, int timeoutSeconds) {
+        AtomicReference<DJIError> zeroResult = new AtomicReference<>();
+        CountDownLatch zeroLatch = new CountDownLatch(1);
+        flightController.sendVirtualStickFlightControlData(new FlightControlData(0f, 0f, 0f, 0f), error -> {
+            zeroResult.set(error);
+            zeroLatch.countDown();
+        });
+
+        try {
+            if (!zeroLatch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+                return DJIError.COMMON_TIMEOUT;
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return DJIError.COMMON_SYSTEM_BUSY;
+        }
+        return zeroResult.get();
     }
 
     private String crearRespuestaComando(boolean ok, String command, String message) {
