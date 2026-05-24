@@ -49,7 +49,9 @@ def menu(host: str, http_port: int, ws_port: int) -> None:
         print("7. Revisar Virtual Stick")
         print("8. Activar Virtual Stick")
         print("9. Desactivar Virtual Stick")
-        print("10. Salir")
+        print("10. Revisar seguridad vuelo")
+        print("11. Parada emergencia")
+        print("12. Salir")
         option = input("Opcion: ").strip()
 
         try:
@@ -72,6 +74,10 @@ def menu(host: str, http_port: int, ws_port: int) -> None:
             elif option == "9":
                 send_command(host, ws_port, "disable_virtual_stick")
             elif option == "10":
+                send_command(host, ws_port, "can_accept_flight_command")
+            elif option == "11":
+                send_command(host, ws_port, "emergency_stop")
+            elif option == "12":
                 break
             else:
                 print("Opcion no valida.")

@@ -26,6 +26,7 @@ import dji.common.error.DJISDKError;
 import dji.common.battery.BatteryState;
 import dji.common.flightcontroller.FlightControllerState;
 import dji.common.flightcontroller.LocationCoordinate3D;
+import dji.common.flightcontroller.virtualstick.FlightControlData;
 import dji.common.flightcontroller.virtualstick.FlightCoordinateSystem;
 import dji.common.flightcontroller.virtualstick.RollPitchControlMode;
 import dji.common.flightcontroller.virtualstick.VerticalControlMode;
@@ -46,6 +47,12 @@ import java.util.concurrent.atomic.AtomicReference;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_DJI_PERMISSIONS = 1001;
+    private static final int MIN_FLIGHT_COMMAND_BATTERY_PERCENT = 25;
+    private static final long MAX_TELEMETRY_AGE_MS = 3000;
+    private static final float MAX_SAFE_ALTITUDE_M = 30f;
+    private static final float MAX_SAFE_DISTANCE_M = 50f;
+    private static final int MAX_FLIGHT_COMMAND_DURATION_SECONDS = 3;
+    private static final float MAX_FLIGHT_COMMAND_SPEED = 0.5f;
 
     private static final String[] REQUESTED_PERMISSIONS = new String[]{
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -84,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean virtualStickAvailable;
     private volatile boolean virtualStickEnabled;
     private volatile boolean flightControllerReady;
+    private volatile long lastTelemetryAtMs;
     private boolean registroSolicitado;
     private boolean djiCargado;
     private boolean djiRegistrado;
@@ -564,6 +572,7 @@ public class MainActivity extends AppCompatActivity {
         bridgeDistance = distance;
         bridgeVerticalSpeed = verticalSpeed;
         bridgeHorizontalSpeed = horizontalSpeed;
+        lastTelemetryAtMs = System.currentTimeMillis();
 
         actualizarResumenEstado();
     }
@@ -794,6 +803,14 @@ public class MainActivity extends AppCompatActivity {
             return manejarSetVirtualStick(false, "disable_virtual_stick");
         }
 
+        if ("can_accept_flight_command".equals(normalized)) {
+            return manejarCanAcceptFlightCommand();
+        }
+
+        if ("emergency_stop".equals(normalized)) {
+            return manejarEmergencyStop();
+        }
+
         return crearRespuestaComando(false, normalized, "comando desconocido");
     }
 
@@ -891,6 +908,104 @@ public class MainActivity extends AppCompatActivity {
         flightController.setRollPitchCoordinateSystem(FlightCoordinateSystem.BODY);
     }
 
+    private String manejarCanAcceptFlightCommand() {
+        String rejection = validarComandoVueloSeguro("send_zero_stick", MAX_FLIGHT_COMMAND_DURATION_SECONDS, 0f);
+        return crearRespuestaComando(
+                rejection == null,
+                "can_accept_flight_command",
+                rejection == null ? "comando de vuelo permitido por validaciones actuales" : rejection
+        );
+    }
+
+    private String validarComandoVueloSeguro(String command, int durationSeconds, float maxSpeed) {
+        if (!"send_zero_stick".equals(command)) {
+            return "comando no permitido: " + command;
+        }
+        if (durationSeconds <= 0 || durationSeconds > MAX_FLIGHT_COMMAND_DURATION_SECONDS) {
+            return "duracion fuera de limite";
+        }
+        if (maxSpeed < 0f || maxSpeed > MAX_FLIGHT_COMMAND_SPEED) {
+            return "velocidad fuera de limite";
+        }
+        if (!dronConectado || connectedProduct == null || !connectedProduct.isConnected()) {
+            return "dron no conectado";
+        }
+        if (!flightControllerReady || connectedFlightController == null) {
+            return "flight controller no listo";
+        }
+        if (!virtualStickAvailable) {
+            return "virtual stick no disponible";
+        }
+        if (!virtualStickEnabled) {
+            return "virtual stick no activo";
+        }
+        if (bridgeBatteryPercent < MIN_FLIGHT_COMMAND_BATTERY_PERCENT) {
+            return "bateria baja o desconocida";
+        }
+        if (lastTelemetryAtMs <= 0 || System.currentTimeMillis() - lastTelemetryAtMs > MAX_TELEMETRY_AGE_MS) {
+            return "telemetria no reciente";
+        }
+        if (bridgeAltitude < 0f || bridgeAltitude > MAX_SAFE_ALTITUDE_M) {
+            return "altura fuera de limite";
+        }
+        if (bridgeDistance < 0f || bridgeDistance > MAX_SAFE_DISTANCE_M) {
+            return "distancia fuera de limite";
+        }
+        return null;
+    }
+
+    private String manejarEmergencyStop() {
+        FlightController flightController = obtenerFlightControllerVirtualStick();
+        if (flightController == null) {
+            runOnUiThread(this::detenerPrueba);
+            return crearRespuestaComando(false, "emergency_stop", "flight controller no disponible; prueba detenida");
+        }
+
+        AtomicReference<DJIError> zeroResult = new AtomicReference<>();
+        CountDownLatch zeroLatch = new CountDownLatch(1);
+        flightController.sendVirtualStickFlightControlData(new FlightControlData(0f, 0f, 0f, 0f), error -> {
+            zeroResult.set(error);
+            zeroLatch.countDown();
+        });
+
+        try {
+            if (!zeroLatch.await(2, TimeUnit.SECONDS)) {
+                runOnUiThread(this::detenerPrueba);
+                return crearRespuestaComando(false, "emergency_stop", "timeout enviando cero; prueba detenida");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            runOnUiThread(this::detenerPrueba);
+            return crearRespuestaComando(false, "emergency_stop", "interrumpido enviando cero; prueba detenida");
+        }
+
+        AtomicReference<DJIError> disableResult = new AtomicReference<>();
+        CountDownLatch disableLatch = new CountDownLatch(1);
+        flightController.setVirtualStickModeEnabled(false, error -> {
+            disableResult.set(error);
+            disableLatch.countDown();
+        });
+
+        try {
+            disableLatch.await(2, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
+
+        virtualStickEnabled = false;
+        runOnUiThread(this::detenerPrueba);
+
+        DJIError zeroError = zeroResult.get();
+        DJIError disableError = disableResult.get();
+        if (zeroError != null) {
+            return crearRespuestaComando(false, "emergency_stop", "cero fallo: " + zeroError.getDescription());
+        }
+        if (disableError != null) {
+            return crearRespuestaComando(false, "emergency_stop", "cero enviado; desactivar fallo: " + disableError.getDescription());
+        }
+        return crearRespuestaComando(true, "emergency_stop", "cero enviado, virtual stick desactivado y prueba detenida");
+    }
+
     private String crearRespuestaComando(boolean ok, String command, String message) {
         return "{"
                 + "\"type\":\"ack\","
@@ -945,6 +1060,7 @@ public class MainActivity extends AppCompatActivity {
         bridgeDistance = 0f;
         bridgeVerticalSpeed = 0f;
         bridgeHorizontalSpeed = 0f;
+        lastTelemetryAtMs = 0;
     }
 
     private void limpiarEstadoVirtualStick() {
