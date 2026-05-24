@@ -110,7 +110,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Cliente WebSocket para DJIMiniBridge.")
     parser.add_argument("host", help="IP del telefono Android mostrada en la app.")
     parser.add_argument("--port", type=int, default=8766, help="Puerto WebSocket del puente.")
-    parser.add_argument("--command", help="Comando opcional: get_status, start_video, stop_video.")
+    parser.add_argument(
+        "--command",
+        help=(
+            "Comando opcional: get_status, start_video, stop_video, stop_test, "
+            "disconnect_drone, check_virtual_stick, enable_virtual_stick, disable_virtual_stick."
+        ),
+    )
     parser.add_argument("--seconds", type=int, default=20, help="Segundos para escuchar telemetria.")
     args = parser.parse_args()
 

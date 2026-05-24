@@ -26,6 +26,10 @@ import dji.common.error.DJISDKError;
 import dji.common.battery.BatteryState;
 import dji.common.flightcontroller.FlightControllerState;
 import dji.common.flightcontroller.LocationCoordinate3D;
+import dji.common.flightcontroller.virtualstick.FlightCoordinateSystem;
+import dji.common.flightcontroller.virtualstick.RollPitchControlMode;
+import dji.common.flightcontroller.virtualstick.VerticalControlMode;
+import dji.common.flightcontroller.virtualstick.YawControlMode;
 import dji.common.model.LocationCoordinate2D;
 import dji.sdk.base.BaseComponent;
 import dji.sdk.base.BaseProduct;
@@ -34,6 +38,10 @@ import dji.sdk.flightcontroller.FlightController;
 import dji.sdk.products.Aircraft;
 import dji.sdk.sdkmanager.DJISDKInitEvent;
 import dji.sdk.sdkmanager.DJISDKManager;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -73,6 +81,9 @@ public class MainActivity extends AppCompatActivity {
     private volatile float bridgeHorizontalSpeed = 0f;
     private volatile String visibleBridgeHttp = "--";
     private volatile String visibleBridgeWs = "--";
+    private volatile boolean virtualStickAvailable;
+    private volatile boolean virtualStickEnabled;
+    private volatile boolean flightControllerReady;
     private boolean registroSolicitado;
     private boolean djiCargado;
     private boolean djiRegistrado;
@@ -414,6 +425,7 @@ public class MainActivity extends AppCompatActivity {
                             bridgeBatteryPercent = -1;
                             bridgeBatteryVoltage = 0;
                             limpiarDatosTelemetria();
+                            limpiarEstadoVirtualStick();
                             actualizarResumenEstado();
                         });
                     }
@@ -478,6 +490,7 @@ public class MainActivity extends AppCompatActivity {
             bridgeBatteryPercent = -1;
             bridgeBatteryVoltage = 0;
             limpiarDatosTelemetria();
+            limpiarEstadoVirtualStick();
             actualizarResumenEstado();
             return;
         }
@@ -512,6 +525,7 @@ public class MainActivity extends AppCompatActivity {
         if (!(product instanceof Aircraft)) {
             limpiarLecturaTelemetria();
             limpiarDatosTelemetria();
+            limpiarEstadoVirtualStick();
             actualizarResumenEstado();
             return;
         }
@@ -520,11 +534,14 @@ public class MainActivity extends AppCompatActivity {
         if (flightController == null) {
             limpiarLecturaTelemetria();
             limpiarDatosTelemetria();
+            limpiarEstadoVirtualStick();
             actualizarResumenEstado();
             return;
         }
 
         connectedFlightController = flightController;
+        flightControllerReady = true;
+        virtualStickAvailable = flightController.isVirtualStickControlModeAvailable();
         flightController.setStateCallback(new FlightControllerState.Callback() {
             @Override
             public void onUpdate(FlightControllerState state) {
@@ -617,6 +634,7 @@ public class MainActivity extends AppCompatActivity {
         bridgeBatteryPercent = -1;
         bridgeBatteryVoltage = 0;
         limpiarDatosTelemetria();
+        limpiarEstadoVirtualStick();
         actualizarResumenEstado();
         status.setText("Prueba detenida");
     }
@@ -642,6 +660,7 @@ public class MainActivity extends AppCompatActivity {
         bridgeBatteryPercent = -1;
         bridgeBatteryVoltage = 0;
         limpiarDatosTelemetria();
+        limpiarEstadoVirtualStick();
         actualizarResumenEstado();
         status.setText("Dron desconectado");
     }
@@ -760,7 +779,113 @@ public class MainActivity extends AppCompatActivity {
             return crearRespuestaComando(true, "disconnect_drone", "dron desconectado");
         }
 
+        if ("check_virtual_stick".equals(normalized)) {
+            return manejarCheckVirtualStick();
+        }
+
+        if ("enable_virtual_stick".equals(normalized)) {
+            return manejarSetVirtualStick(true, "enable_virtual_stick");
+        }
+
+        if ("disable_virtual_stick".equals(normalized)) {
+            return manejarSetVirtualStick(false, "disable_virtual_stick");
+        }
+
         return crearRespuestaComando(false, normalized, "comando desconocido");
+    }
+
+    private String manejarCheckVirtualStick() {
+        FlightController flightController = obtenerFlightControllerVirtualStick();
+        if (flightController == null) {
+            limpiarEstadoVirtualStick();
+            return crearRespuestaComando(false, "check_virtual_stick", "flight controller no disponible");
+        }
+
+        flightControllerReady = true;
+        virtualStickAvailable = flightController.isVirtualStickControlModeAvailable();
+
+        return crearRespuestaComando(
+                virtualStickAvailable,
+                "check_virtual_stick",
+                "available=" + virtualStickAvailable
+                        + ", enabled=" + virtualStickEnabled
+                        + ", flightControllerReady=" + flightControllerReady
+        );
+    }
+
+    private String manejarSetVirtualStick(boolean enabled, String command) {
+        FlightController flightController = obtenerFlightControllerVirtualStick();
+        if (flightController == null) {
+            limpiarEstadoVirtualStick();
+            return crearRespuestaComando(false, command, "flight controller no disponible");
+        }
+
+        flightControllerReady = true;
+        virtualStickAvailable = flightController.isVirtualStickControlModeAvailable();
+        if (!virtualStickAvailable) {
+            virtualStickEnabled = false;
+            return crearRespuestaComando(false, command, "virtual stick no disponible");
+        }
+
+        if (enabled) {
+            configurarModosVirtualStick(flightController);
+        }
+
+        AtomicReference<DJIError> result = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+        flightController.setVirtualStickModeEnabled(enabled, error -> {
+            result.set(error);
+            latch.countDown();
+        });
+
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                return crearRespuestaComando(false, command, "timeout configurando virtual stick");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return crearRespuestaComando(false, command, "interrumpido configurando virtual stick");
+        }
+
+        DJIError error = result.get();
+        if (error != null) {
+            virtualStickEnabled = !enabled && virtualStickEnabled;
+            return crearRespuestaComando(false, command, error.getDescription());
+        }
+
+        virtualStickEnabled = enabled;
+        return crearRespuestaComando(
+                true,
+                command,
+                enabled ? "virtual stick activado sin movimiento" : "virtual stick desactivado"
+        );
+    }
+
+    private FlightController obtenerFlightControllerVirtualStick() {
+        if (connectedFlightController != null) {
+            return connectedFlightController;
+        }
+
+        BaseProduct product = connectedProduct;
+        if (product == null) {
+            product = DJISDKManager.getInstance().getProduct();
+            connectedProduct = product;
+        }
+
+        if (!(product instanceof Aircraft)) {
+            return null;
+        }
+
+        FlightController flightController = ((Aircraft) product).getFlightController();
+        connectedFlightController = flightController;
+        return flightController;
+    }
+
+    private void configurarModosVirtualStick(FlightController flightController) {
+        flightController.setRollPitchControlMode(RollPitchControlMode.VELOCITY);
+        flightController.setYawControlMode(YawControlMode.ANGULAR_VELOCITY);
+        flightController.setVerticalControlMode(VerticalControlMode.VELOCITY);
+        flightController.setRollPitchCoordinateSystem(FlightCoordinateSystem.BODY);
     }
 
     private String crearRespuestaComando(boolean ok, String command, String message) {
@@ -809,6 +934,7 @@ public class MainActivity extends AppCompatActivity {
             connectedFlightController.setStateCallback(null);
             connectedFlightController = null;
         }
+        flightControllerReady = false;
     }
 
     private void limpiarDatosTelemetria() {
@@ -816,6 +942,12 @@ public class MainActivity extends AppCompatActivity {
         bridgeDistance = 0f;
         bridgeVerticalSpeed = 0f;
         bridgeHorizontalSpeed = 0f;
+    }
+
+    private void limpiarEstadoVirtualStick() {
+        virtualStickAvailable = false;
+        virtualStickEnabled = false;
+        flightControllerReady = false;
     }
 
     @Override
