@@ -29,9 +29,14 @@ def send_command(host: str, ws_port: int, command: str) -> None:
     sock = connect_websocket(host, ws_port)
     try:
         send_text(sock, command)
-        message = read_text(sock)
-        if message:
-            print_message(message)
+        while True:
+            message = read_text(sock)
+            if not message:
+                break
+            data = json.loads(message)
+            if data.get("type") == "ack":
+                print_message(message)
+                break
     finally:
         sock.close()
 
