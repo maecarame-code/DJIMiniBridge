@@ -96,7 +96,8 @@ def print_message(message: str) -> None:
             f"video={status.get('videoActive')} "
             f"vsDisponible={status.get('virtualStickAvailable')} "
             f"vsActivo={status.get('virtualStickEnabled')} "
-            f"fcListo={status.get('flightControllerReady')}"
+            f"fcListo={status.get('flightControllerReady')} "
+            f"ultimoLog={status.get('lastCommandAudit')}"
         )
     elif data.get("type") == "ack":
         result = "OK" if data.get("ok") else "ERROR"

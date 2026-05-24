@@ -13,6 +13,7 @@ import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.WindowManager;
@@ -47,6 +48,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "DJIMiniBridge";
     private static final int REQUEST_DJI_PERMISSIONS = 1001;
     private static final int MIN_FLIGHT_COMMAND_BATTERY_PERCENT = 25;
     private static final long MAX_TELEMETRY_AGE_MS = 3000;
@@ -94,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean virtualStickEnabled;
     private volatile boolean flightControllerReady;
     private volatile long lastTelemetryAtMs;
+    private volatile String lastCommandAudit = "--";
     private boolean registroSolicitado;
     private boolean djiCargado;
     private boolean djiRegistrado;
@@ -757,12 +760,20 @@ public class MainActivity extends AppCompatActivity {
                 + "\"videoActive\":" + videoIniciado + ","
                 + "\"virtualStickAvailable\":" + virtualStickAvailable + ","
                 + "\"virtualStickEnabled\":" + virtualStickEnabled + ","
-                + "\"flightControllerReady\":" + flightControllerReady
+                + "\"flightControllerReady\":" + flightControllerReady + ","
+                + "\"lastCommandAudit\":\"" + jsonEscape(lastCommandAudit) + "\""
                 + "}";
     }
 
     private String manejarComandoPuente(String command) {
         String normalized = command == null ? "" : command.trim().toLowerCase(java.util.Locale.US);
+        auditarComandoRecibido(normalized);
+        String response = manejarComandoPuenteInterno(normalized);
+        auditarComandoRespondido(normalized, response);
+        return response;
+    }
+
+    private String manejarComandoPuenteInterno(String normalized) {
         if ("get_status".equals(normalized)) {
             return "{\"type\":\"status\",\"data\":" + getBridgeStatusJson() + "}";
         }
@@ -1068,6 +1079,66 @@ public class MainActivity extends AppCompatActivity {
             return DJIError.COMMON_SYSTEM_BUSY;
         }
         return zeroResult.get();
+    }
+
+    private void auditarComandoRecibido(String command) {
+        String line = "recibido"
+                + " hora=" + System.currentTimeMillis()
+                + " origen=websocket"
+                + " comando=" + command
+                + " dron=" + bridgeConnection
+                + " fcListo=" + flightControllerReady
+                + " vsDisponible=" + virtualStickAvailable
+                + " vsActivo=" + virtualStickEnabled
+                + " bateria=" + bridgeBatteryPercent
+                + " telemetriaMs=" + edadTelemetriaMs();
+        lastCommandAudit = line;
+        Log.i(TAG, "AUDIT " + line);
+    }
+
+    private void auditarComandoRespondido(String command, String response) {
+        boolean accepted = response != null && response.contains("\"ok\":true");
+        String line = "respuesta"
+                + " hora=" + System.currentTimeMillis()
+                + " origen=websocket"
+                + " comando=" + command
+                + " decision=" + (accepted ? "aceptado" : "rechazado")
+                + " razon=\"" + extraerMensajeRespuesta(response) + "\""
+                + " dron=" + bridgeConnection
+                + " fcListo=" + flightControllerReady
+                + " vsDisponible=" + virtualStickAvailable
+                + " vsActivo=" + virtualStickEnabled
+                + " respuesta=\"" + compactarRespuesta(response) + "\"";
+        lastCommandAudit = line;
+        Log.i(TAG, "AUDIT " + line);
+    }
+
+    private long edadTelemetriaMs() {
+        return lastTelemetryAtMs <= 0 ? -1 : System.currentTimeMillis() - lastTelemetryAtMs;
+    }
+
+    private String extraerMensajeRespuesta(String response) {
+        if (response == null) {
+            return "";
+        }
+        String marker = "\"message\":\"";
+        int start = response.indexOf(marker);
+        if (start < 0) {
+            return "";
+        }
+        start += marker.length();
+        int end = response.indexOf("\"", start);
+        if (end < 0) {
+            return response.substring(start);
+        }
+        return response.substring(start, end);
+    }
+
+    private String compactarRespuesta(String response) {
+        if (response == null) {
+            return "";
+        }
+        return response.replace("\n", " ").replace("\r", " ");
     }
 
     private String crearRespuestaComando(boolean ok, String command, String message) {
